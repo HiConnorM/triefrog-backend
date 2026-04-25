@@ -1,0 +1,186 @@
+import type { TemplateContext } from './readme.template';
+
+export function generateApi(context: TemplateContext): string {
+  const { projectName, entities } = context;
+
+  const endpointsTable =
+    entities.apis.length > 0
+      ? entities.apis
+          .map(
+            (a) =>
+              `| \`${a.method.toUpperCase()}\` | \`${a.path}\` | ${a.description ?? ''} |`,
+          )
+          .join('\n')
+      : '| *(no endpoints detected)* | | |';
+
+  return `# API Reference — ${projectName}
+
+## Base URL
+
+| Environment | URL |
+|-------------|-----|
+| Local | \`http://localhost:3000\` |
+| Staging | \`https://staging-api.example.com\` |
+| Production | \`https://api.example.com\` |
+
+All API requests go through the **Gateway** service. The gateway validates authentication and proxies requests to downstream services.
+
+## Authentication
+
+All endpoints (except \`/auth/register\` and \`/auth/login\`) require a valid JWT bearer token.
+
+\`\`\`
+Authorization: Bearer <access_token>
+\`\`\`
+
+### Obtaining a Token
+
+\`\`\`bash
+curl -X POST http://localhost:3000/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"email":"user@example.com","password":"secret"}'
+\`\`\`
+
+Response:
+
+\`\`\`json
+{
+  "accessToken": "eyJhbGci...",
+  "refreshToken": "eyJhbGci...",
+  "expiresIn": 900
+}
+\`\`\`
+
+## Rate Limiting
+
+The gateway enforces **100 requests per minute per IP address**. When the limit is exceeded, the API returns:
+
+\`\`\`json
+HTTP 429 Too Many Requests
+{
+  "statusCode": 429,
+  "message": "Rate limit exceeded. Try again in 60 seconds."
+}
+\`\`\`
+
+## Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+${endpointsTable}
+
+### Auth Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| \`POST\` | \`/auth/register\` | No | Register a new user |
+| \`POST\` | \`/auth/login\` | No | Obtain access + refresh tokens |
+| \`POST\` | \`/auth/refresh\` | No | Exchange refresh token for new access token |
+| \`POST\` | \`/auth/logout\` | Yes | Invalidate refresh token |
+| \`GET\` | \`/auth/me\` | Yes | Get authenticated user profile |
+
+### Project Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| \`GET\` | \`/projects\` | Yes | List projects for user's organisation |
+| \`POST\` | \`/projects\` | Yes | Create a new project |
+| \`GET\` | \`/projects/:id\` | Yes | Get project details |
+| \`GET\` | \`/projects/:id/overview\` | Yes | Aggregated project overview |
+| \`POST\` | \`/projects/:id/scan\` | Yes | Trigger a scan |
+| \`GET\` | \`/projects/:id/scan/stream\` | Yes | SSE stream for scan progress |
+
+### Documentation Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| \`GET\` | \`/projects/:id/docs\` | Yes | List all docs for a project |
+| \`GET\` | \`/docs/:docId\` | Yes | Get doc with full content |
+| \`POST\` | \`/projects/:id/docs/generate\` | Yes | Trigger doc generation |
+| \`POST\` | \`/docs/:docId/verify\` | Yes | Mark doc as verified |
+| \`POST\` | \`/projects/:id/docs/export-pr\` | Yes | Export docs as a pull request |
+
+### Map / Graph Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| \`GET\` | \`/projects/:id/map\` | Yes | Get project entity map |
+| \`GET\` | \`/projects/:id/trie\` | Yes | Get project trie structure |
+| \`GET\` | \`/nodes/:nodeId\` | Yes | Get node detail |
+| \`PATCH\` | \`/nodes/:nodeId/status\` | Yes | Update node status |
+
+### Findings Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| \`GET\` | \`/projects/:id/findings\` | Yes | List findings for a project |
+| \`PATCH\` | \`/findings/:findingId/resolve\` | Yes | Mark finding as resolved |
+
+## Request / Response Examples
+
+### Create Project
+
+\`\`\`bash
+curl -X POST http://localhost:3000/projects \\
+  -H "Authorization: Bearer <token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "My App",
+    "repoUrl": "https://github.com/org/my-app",
+    "description": "Description of my app"
+  }'
+\`\`\`
+
+Response \`201 Created\`:
+
+\`\`\`json
+{
+  "id": "proj_abc123",
+  "name": "My App",
+  "repoUrl": "https://github.com/org/my-app",
+  "status": "active",
+  "createdAt": "2026-04-23T00:00:00.000Z"
+}
+\`\`\`
+
+### Generate Docs
+
+\`\`\`bash
+curl -X POST http://localhost:3000/projects/proj_abc123/docs/generate \\
+  -H "Authorization: Bearer <token>"
+\`\`\`
+
+Response \`202 Accepted\`:
+
+\`\`\`json
+{
+  "docIds": ["doc_1", "doc_2", "doc_3", "doc_4", "doc_5", "doc_6", "doc_7"]
+}
+\`\`\`
+
+## Error Responses
+
+| Status | Meaning |
+|--------|---------|
+| \`400\` | Bad request — invalid input |
+| \`401\` | Unauthorized — missing or invalid token |
+| \`403\` | Forbidden — insufficient permissions |
+| \`404\` | Not found |
+| \`429\` | Too many requests |
+| \`500\` | Internal server error |
+
+Error shape:
+
+\`\`\`json
+{
+  "statusCode": 404,
+  "message": "Doc abc123 not found",
+  "error": "Not Found"
+}
+\`\`\`
+
+---
+
+*Generated by [Triefrog](https://triefrog.dev)*
+`;
+}

@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  members   OrgMember[]
+  teams     Team[]
+  projects  Project[]
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  orgs         OrgMember[]
+  teams        TeamMember[]
+  auditLogs    AuditLog[]
+}
+
+model OrgMember {
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String
+  role      String   @default("member") // owner | admin | member
+  createdAt DateTime @default(now())
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+}
+
+model Team {
+  id        String       @id @default(cuid())
+  orgId     String
+  name      String
+  createdAt DateTime     @default(now())
+  org       Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members   TeamMember[]
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model Project {
+  id              String           @id @default(cuid())
+  orgId           String
+  name            String
+  description     String?
+  repoUrl         String
+  repoProvider    String           @default("github")
+  defaultBranch   String           @default("main")
+  lastScanAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  org             Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  repoConnections RepoConnection[]
+  scans           Scan[]
+  snapshots       Snapshot[]
+  entities        Entity[]
+  edges           Edge[]
+  findings        Finding[]
+  docs            Doc[]
+  mapPayload      MapPayload?
+}
+
+model RepoConnection {
+  id             String   @id @default(cuid())
+  projectId      String
+  provider       String   @default("github")
+  encryptedToken String
+  installationId String?
+  webhookId      String?
+  webhookSecret  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Scan {
+  id          String    @id @default(cuid())
+  projectId   String
+  status      String    @default("queued") // queued | running | done | failed
+  triggeredBy String?
+  startedAt   DateTime?
+  endedAt     DateTime?
+  errorMsg    String?
+  createdAt   DateTime  @default(now())
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  snapshot    Snapshot?
+}
+
+model Snapshot {
+  id        String   @id @default(cuid())
+  projectId String
+  scanId    String   @unique
+  s3Key     String
+  version   Int      @default(1)
+  techStack Json     @default("{}")
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scan      Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+}
+
+model Entity {
+  id         String    @id @default(cuid())
+  projectId  String
+  snapshotId String?
+  externalId String
+  type       String
+  name       String
+  status     String    @default("suspect") // verified | suspect | missing | changed
+  properties Json      @default("{}")
+  files      String[]  @default([])
+  posX       Float?
+  posY       Float?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromEdges  Edge[]    @relation("EdgeFrom")
+  toEdges    Edge[]    @relation("EdgeTo")
+  findings   Finding[]
+  docLinks   DocLink[]
+
+  @@unique([projectId, externalId])
+}
+
+model Edge {
+  id           String   @id @default(cuid())
+  projectId    String
+  fromEntityId String
+  toEntityId   String
+  type         String
+  label        String?
+  createdAt    DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  from         Entity   @relation("EdgeFrom", fields: [fromEntityId], references: [id], onDelete: Cascade)
+  to           Entity   @relation("EdgeTo", fields: [toEntityId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, fromEntityId, toEntityId, type])
+}
+
+model Finding {
+  id               String    @id @default(cuid())
+  projectId        String
+  entityId         String?
+  ruleId           String
+  category         String
+  severity         String
+  title            String
+  description      String
+  suggestedActions Json      @default("[]")
+  resolved         Boolean   @default(false)
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entity           Entity?   @relation(fields: [entityId], references: [id], onDelete: SetNull)
+}
+
+model Doc {
+  id             String       @id @default(cuid())
+  projectId      String
+  type           String
+  title          String
+  status         String       @default("draft") // draft | verified | stale
+  lastVerifiedAt DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions       DocVersion[]
+  links          DocLink[]
+}
+
+model DocVersion {
+  id         String   @id @default(cuid())
+  docId      String
+  contentKey String
+  content    String
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  doc        Doc      @relation(fields: [docId], references: [id], onDelete: Cascade)
+}
+
+model DocLink {
+  id       String @id @default(cuid())
+  docId    String
+  entityId String
+  doc      Doc    @relation(fields: [docId], references: [id], onDelete: Cascade)
+  entity   Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([docId, entityId])
+}
+
+model MapPayload {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  payload   Json
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  eventName String
+  actorId   String?
+  orgId     String?
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now())
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}

@@ -1,0 +1,262 @@
+version: '3.9'
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: triefrog
+      POSTGRES_USER: triefrog
+      POSTGRES_PASSWORD: triefrog_dev_password
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U triefrog']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin_dev
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Services ────────────────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: .
+      dockerfile: apps/auth-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://triefrog:triefrog_dev_password@postgres:5432/triefrog
+      JWT_SECRET: change_me_super_secret_jwt_key_at_least_32_chars
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      AUTH_PORT: 3001
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3001:3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  connector-service:
+    build:
+      context: .
+      dockerfile: apps/connector-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://triefrog:triefrog_dev_password@postgres:5432/triefrog
+      ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      CONNECTOR_PORT: 3002
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3002:3002'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scanner-service:
+    build:
+      context: .
+      dockerfile: apps/scanner-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://triefrog:triefrog_dev_password@postgres:5432/triefrog
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin_dev
+      MINIO_BUCKET: triefrog-snapshots
+      MINIO_USE_SSL: 'false'
+      SCANNER_PORT: 3003
+      GITHUB_SCAN_MODE: local
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3003:3003'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  graph-service:
+    build:
+      context: .
+      dockerfile: apps/graph-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://triefrog:triefrog_dev_password@postgres:5432/triefrog
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GRAPH_PORT: 3004
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3004:3004'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  check-service:
+    build:
+      context: .
+      dockerfile: apps/check-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://triefrog:triefrog_dev_password@postgres:5432/triefrog
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CHECK_PORT: 3005
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3005:3005'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  docs-service:
+    build:
+      context: .
+      dockerfile: apps/docs-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://triefrog:triefrog_dev_password@postgres:5432/triefrog
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DOCS_PORT: 3006
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3006:3006'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  search-service:
+    build:
+      context: .
+      dockerfile: apps/search-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://triefrog:triefrog_dev_password@postgres:5432/triefrog
+      SEARCH_PORT: 3007
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3007:3007'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  realtime-service:
+    build:
+      context: .
+      dockerfile: apps/realtime-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REALTIME_PORT: 3008
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3008:3008'
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      JWT_SECRET: change_me_super_secret_jwt_key_at_least_32_chars
+      GATEWAY_PORT: 3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      CONNECTOR_SERVICE_URL: http://connector-service:3002
+      SCANNER_SERVICE_URL: http://scanner-service:3003
+      GRAPH_SERVICE_URL: http://graph-service:3004
+      CHECK_SERVICE_URL: http://check-service:3005
+      DOCS_SERVICE_URL: http://docs-service:3006
+      SEARCH_SERVICE_URL: http://search-service:3007
+      REALTIME_SERVICE_URL: http://realtime-service:3008
+      NODE_ENV: production
+      LOG_LEVEL: info
+    ports:
+      - '3000:3000'
+    depends_on:
+      - auth-service
+      - connector-service
+      - scanner-service
+      - graph-service
+      - check-service
+      - docs-service
+      - search-service
+      - realtime-service
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:3000
+      WEB_PORT: 3100
+      NODE_ENV: production
+    ports:
+      - '3100:3100'
+    depends_on:
+      - gateway
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

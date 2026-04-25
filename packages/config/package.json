@@ -1,0 +1,12 @@
+{
+  "name": "@triefrog/config",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./tsconfig": "./tsconfig.json",
+    "./tsconfig/nest": "./tsconfig.nest.json",
+    "./tsconfig/next": "./tsconfig.next.json",
+    "./eslint": "./eslint.js",
+    "./prettier": "./prettier.js"
+  }
+}

@@ -1,0 +1,55 @@
+# Shared base Dockerfile for NestJS microservices
+# Build: docker build --build-arg SERVICE=auth-service -t triefrog-auth .
+ARG SERVICE
+
+FROM node:20-alpine AS base
+RUN npm install -g pnpm@9
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/config/package.json ./packages/config/
+COPY packages/shared-types/package.json ./packages/shared-types/
+COPY packages/shared-utils/package.json ./packages/shared-utils/
+COPY packages/analyzers/package.json ./packages/analyzers/
+COPY packages/db/package.json ./packages/db/
+COPY apps/${SERVICE}/package.json ./apps/${SERVICE}/
+RUN pnpm install --frozen-lockfile
+
+FROM base AS builder
+ARG SERVICE
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages ./packages
+COPY tsconfig.base.json ./
+COPY packages/ ./packages/
+COPY apps/${SERVICE} ./apps/${SERVICE}/
+COPY packages/db/prisma ./packages/db/prisma/
+
+WORKDIR /app/packages/db
+RUN pnpm generate
+
+WORKDIR /app/packages/shared-types
+RUN pnpm build
+
+WORKDIR /app/packages/shared-utils
+RUN pnpm build
+
+WORKDIR /app/packages/analyzers
+RUN pnpm build || true
+
+WORKDIR /app/apps/${SERVICE}
+RUN pnpm build
+
+FROM node:20-alpine AS runner
+ARG SERVICE
+ENV NODE_ENV=production
+RUN npm install -g pnpm@9
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/apps/${SERVICE}/dist ./apps/${SERVICE}/dist
+COPY --from=builder /app/apps/${SERVICE}/package.json ./apps/${SERVICE}/
+
+WORKDIR /app/apps/${SERVICE}
+CMD ["node", "dist/main"]
