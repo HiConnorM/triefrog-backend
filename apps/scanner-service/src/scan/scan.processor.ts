@@ -7,7 +7,7 @@ import { Job, Queue } from 'bullmq';
 import { simpleGit } from 'simple-git';
 import { db } from '@triefrog/db';
 import { AnalyzerRunner } from '@triefrog/analyzers';
-import type { ScanRequestedEvent, ProjectSnapshot } from '@triefrog/shared-types';
+import type { ScanRequestedEvent } from '@triefrog/shared-types';
 import { StorageService } from '../storage/storage.service';
 import { ensureSampleRepo } from './sample-repo';
 
@@ -96,56 +96,49 @@ export class ScanProcessor extends WorkerHost {
         this.logger.log(`Scan ${scanId}: analyzer stage = ${stage}`);
       });
 
-      // 5. Build ProjectSnapshot
-      await job.updateProgress({ stage: 'building-snapshot', percent: 82 });
-
-      const snapshot: ProjectSnapshot = {
-        id: scanId,
-        projectId,
-        scannedAt: new Date().toISOString(),
-        entities,
-        edges,
-        findings,
-      };
-
-      // 6. Upload snapshot JSON to MinIO
+      // 5. Upload snapshot JSON to MinIO
       await job.updateProgress({ stage: 'uploading', percent: 88 });
       await this.storageService.ensureBucket(SNAPSHOT_BUCKET);
       const snapshotKey = `${projectId}/${scanId}.json`;
-      await this.storageService.putObject(SNAPSHOT_BUCKET, snapshotKey, JSON.stringify(snapshot));
+      const snapshotData = { scanId, projectId, entities, edges, findings };
+      await this.storageService.putObject(SNAPSHOT_BUCKET, snapshotKey, JSON.stringify(snapshotData));
       this.logger.log(`Snapshot uploaded to ${SNAPSHOT_BUCKET}/${snapshotKey}`);
 
-      // 7. Save entities + edges to DB (upsert)
+      // 6. Create Snapshot record in DB
+      const snapshotRecord = await db.snapshot.create({
+        data: {
+          projectId,
+          scanId,
+          s3Key: snapshotKey,
+          version: 1,
+          techStack: {},
+        },
+      });
+
+      // 7. Save entities to DB (upsert by projectId+externalId)
       await job.updateProgress({ stage: 'persisting', percent: 92 });
 
       for (const entity of entities) {
-        await db.snapshotEntity.upsert({
-          where: { externalId: entity.externalId },
+        await db.entity.upsert({
+          where: { projectId_externalId: { projectId, externalId: entity.externalId } },
           create: {
-            ...entity,
-            scanId,
-            properties: entity.properties as Record<string, unknown>,
+            projectId,
+            snapshotId: snapshotRecord.id,
+            externalId: entity.externalId,
+            type: entity.type,
+            name: entity.name,
+            status: 'suspect',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            properties: entity.properties as any,
+            files: entity.files ?? [],
           },
           update: {
-            ...entity,
-            scanId,
-            properties: entity.properties as Record<string, unknown>,
-          },
-        });
-      }
-
-      for (const edge of edges) {
-        await db.snapshotEdge.upsert({
-          where: { externalId: edge.externalId },
-          create: {
-            ...edge,
-            scanId,
-            properties: edge.properties as Record<string, unknown>,
-          },
-          update: {
-            ...edge,
-            scanId,
-            properties: edge.properties as Record<string, unknown>,
+            snapshotId: snapshotRecord.id,
+            type: entity.type,
+            name: entity.name,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            properties: entity.properties as any,
+            files: entity.files ?? [],
           },
         });
       }
@@ -156,10 +149,8 @@ export class ScanProcessor extends WorkerHost {
       const eventPayload = {
         scanId,
         projectId,
-        snapshotKey,
-        entityCount: entities.length,
-        edgeCount: edges.length,
-        findingCount: findings.length,
+        snapshotId: snapshotRecord.id,
+        s3Key: snapshotKey,
       };
 
       await Promise.all([
@@ -173,11 +164,7 @@ export class ScanProcessor extends WorkerHost {
         where: { id: scanId },
         data: {
           status: 'done',
-          completedAt: new Date(),
-          entityCount: entities.length,
-          edgeCount: edges.length,
-          findingCount: findings.length,
-          snapshotUrl: `${SNAPSHOT_BUCKET}/${snapshotKey}`,
+          endedAt: new Date(),
         },
       });
 
@@ -191,8 +178,8 @@ export class ScanProcessor extends WorkerHost {
           where: { id: scanId },
           data: {
             status: 'failed',
-            completedAt: new Date(),
-            errorMessage: err instanceof Error ? err.message : String(err),
+            endedAt: new Date(),
+            errorMsg: err instanceof Error ? err.message : String(err),
           },
         });
       } catch (dbErr) {

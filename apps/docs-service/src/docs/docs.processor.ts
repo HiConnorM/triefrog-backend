@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { Processor, WorkerHost } from 'bullmq';
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Job } from 'bullmq';
 import { DocsService } from './docs.service';
 
 export interface SnapshotCreatedEvent {
@@ -16,7 +17,7 @@ export class DocsProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: { name: string; data: SnapshotCreatedEvent }): Promise<void> {
+  async process(job: Job<SnapshotCreatedEvent>): Promise<void> {
     this.logger.log(`Processing job ${job.name} for project ${job.data.projectId}`);
 
     switch (job.name) {

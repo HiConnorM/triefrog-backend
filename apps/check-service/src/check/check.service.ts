@@ -1,7 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { db } from '@triefrog/db';
-import { findings, entities } from '@triefrog/db/schema';
-import { eq, and } from 'drizzle-orm';
 import { FindingsQueryDto } from './dto/findings-query.dto';
 
 export interface RawFinding {
@@ -16,32 +14,28 @@ export interface RawFinding {
 export class CheckService {
   private readonly logger = new Logger(CheckService.name);
 
-  async getFindings(projectId: string, filters: FindingsQueryDto) {
-    const conditions = [eq(findings.projectId, projectId)];
+  async getFindings(projectId: string, filters: FindingsQueryDto): Promise<unknown> {
+    const where: Record<string, unknown> = { projectId };
 
     if (filters.category !== undefined) {
-      conditions.push(eq(findings.category, filters.category));
+      where.category = filters.category;
     }
     if (filters.severity !== undefined) {
-      conditions.push(eq(findings.severity, filters.severity));
+      where.severity = filters.severity;
     }
     if (filters.resolved !== undefined) {
-      conditions.push(eq(findings.resolved, filters.resolved));
+      where.resolved = filters.resolved;
     }
 
-    const results = await db
-      .select()
-      .from(findings)
-      .where(and(...conditions));
+    const results = await db.finding.findMany({ where });
 
     return { findings: results, total: results.length };
   }
 
   async getOverview(projectId: string) {
-    const allFindings = await db
-      .select()
-      .from(findings)
-      .where(and(eq(findings.projectId, projectId), eq(findings.resolved, false)));
+    const allFindings = await db.finding.findMany({
+      where: { projectId, resolved: false },
+    });
 
     // Compute shippability score
     let score = 100;
@@ -55,14 +49,19 @@ export class CheckService {
     score = Math.max(0, score);
 
     // Group findings by category for health cards
-    const grouped: Record<string, (typeof findings.$inferSelect)[]> = {};
+    const grouped: Record<string, typeof allFindings> = {};
     for (const finding of allFindings) {
       const cat = finding.category ?? 'general';
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(finding);
     }
 
-    const healthCards = Object.entries(grouped).map(([category, catFindings]) => {
+    const healthCards: Array<{
+      category: string;
+      status: 'verified' | 'suspect' | 'critical';
+      findingCount: number;
+      findings: { id: string; title: string; severity: string }[];
+    }> = Object.entries(grouped).map(([category, catFindings]) => {
       const hasCritical = catFindings.some((f) => f.severity === 'critical');
       const status: 'verified' | 'suspect' | 'critical' = hasCritical
         ? 'critical'
@@ -100,29 +99,21 @@ export class CheckService {
     };
   }
 
-  async resolveFinding(findingId: string) {
-    const existing = await db
-      .select()
-      .from(findings)
-      .where(eq(findings.id, findingId))
-      .limit(1);
+  async resolveFinding(findingId: string): Promise<unknown> {
+    const existing = await db.finding.findUnique({
+      where: { id: findingId },
+    });
 
-    if (existing.length === 0) {
+    if (!existing) {
       throw new NotFoundException(`Finding ${findingId} not found`);
     }
 
-    await db
-      .update(findings)
-      .set({ resolved: true, updatedAt: new Date() })
-      .where(eq(findings.id, findingId));
+    const updated = await db.finding.update({
+      where: { id: findingId },
+      data: { resolved: true, resolvedAt: new Date() },
+    });
 
-    const updated = await db
-      .select()
-      .from(findings)
-      .where(eq(findings.id, findingId))
-      .limit(1);
-
-    return updated[0];
+    return updated;
   }
 
   async processFindingsFromSnapshot(
@@ -134,15 +125,16 @@ export class CheckService {
     );
 
     // Delete old unresolved findings for this project
-    await db
-      .delete(findings)
-      .where(and(eq(findings.projectId, projectId), eq(findings.resolved, false)));
+    await db.finding.deleteMany({
+      where: { projectId, resolved: false },
+    });
 
     // Insert new findings
     if (rawFindings.length > 0) {
-      await db.insert(findings).values(
-        rawFindings.map((f) => ({
+      await db.finding.createMany({
+        data: rawFindings.map((f) => ({
           projectId,
+          ruleId: `rule:${f.category}:${f.title.toLowerCase().replace(/\s+/g, '-')}`,
           title: f.title,
           description: f.description,
           severity: f.severity,
@@ -150,7 +142,7 @@ export class CheckService {
           entityId: f.entityId ?? null,
           resolved: false,
         })),
-      );
+      });
     }
 
     this.logger.log(
@@ -159,29 +151,28 @@ export class CheckService {
   }
 
   async generateFindingsFromEntities(projectId: string): Promise<RawFinding[]> {
-    const projectEntities = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.projectId, projectId));
+    const projectEntities = await db.entity.findMany({
+      where: { projectId },
+    });
 
     const rawFindings: RawFinding[] = [];
 
-    const types = projectEntities.map((e) => e.type.toLowerCase());
+    const types = projectEntities.map((e: { type: string }) => e.type.toLowerCase());
     const hasEnvVarEntities = types.some(
-      (t) => t.includes('env-var') || t.includes('env_var'),
+      (t: string) => t.includes('env-var') || t.includes('env_var'),
     );
     const hasEnvExample = projectEntities.some(
-      (e) => e.name?.toLowerCase().includes('.env.example'),
+      (e: { name: string }) => e.name?.toLowerCase().includes('.env.example'),
     );
     const hasBuildScript = projectEntities.some(
-      (e) =>
+      (e: { name: string; type: string }) =>
         e.name?.toLowerCase() === 'build' &&
         e.type?.toLowerCase().includes('script'),
     );
     const hasDbTables = types.some(
-      (t) => t.includes('db-table') || t.includes('table'),
+      (t: string) => t.includes('db-table') || t.includes('table'),
     );
-    const hasDeployTarget = types.some((t) => t.includes('deploy'));
+    const hasDeployTarget = types.some((t: string) => t.includes('deploy'));
 
     // Check for .env.example
     if (!hasEnvExample && hasEnvVarEntities) {
@@ -200,7 +191,6 @@ export class CheckService {
       if (type.includes('env-var') || type.includes('env_var')) {
         const props = (entity.properties ?? {}) as Record<string, unknown>;
         const hasDoc =
-          entity.description ||
           props['documented'] ||
           props['description'];
         if (!hasDoc) {
@@ -219,7 +209,7 @@ export class CheckService {
     // Check for build script
     if (!hasBuildScript) {
       const buildScriptEntity = projectEntities.find(
-        (e) =>
+        (e: { name: string; type: string; properties: unknown }) =>
           (e.name?.toLowerCase().includes('build') &&
             e.type?.toLowerCase().includes('script')) ||
           (e.properties as Record<string, unknown>)?.['buildScript'],
@@ -237,7 +227,7 @@ export class CheckService {
 
     // Check for DB migrations
     if (hasDbTables) {
-      const hasMigrations = projectEntities.some((e) => {
+      const hasMigrations = projectEntities.some((e: { name: string; properties: unknown }) => {
         const props = (e.properties ?? {}) as Record<string, unknown>;
         return (
           e.name?.toLowerCase().includes('migration') ||
@@ -260,7 +250,7 @@ export class CheckService {
     // Check for deploy documentation
     if (hasDeployTarget) {
       const hasDeployDoc = projectEntities.some(
-        (e) =>
+        (e: { type: string; name: string }) =>
           e.type?.toLowerCase().includes('doc') &&
           e.name?.toLowerCase().includes('deploy'),
       );

@@ -110,20 +110,16 @@ export class SchemaAnalyzer implements Analyzer {
           // Find potential endpoint entity IDs by matching segment
           edges.push({
             externalId: `${ctx.projectId}:edge:${segment}->reads->${model}`,
-            projectId: ctx.projectId,
-            fromEntityId: `${ctx.projectId}:api-endpoint:GET:/${segment}`,
-            toEntityId: `${ctx.projectId}:db-table:${model}`,
+            from: `${ctx.projectId}:api-endpoint:GET:/${segment}`,
+            to: `${ctx.projectId}:db-table:${model}`,
             type: 'reads',
-            properties: { heuristic: true },
           } as SnapshotEdge);
 
           edges.push({
             externalId: `${ctx.projectId}:edge:${segment}->writes->${model}`,
-            projectId: ctx.projectId,
-            fromEntityId: `${ctx.projectId}:api-endpoint:POST:/${segment}`,
-            toEntityId: `${ctx.projectId}:db-table:${model}`,
+            from: `${ctx.projectId}:api-endpoint:POST:/${segment}`,
+            to: `${ctx.projectId}:db-table:${model}`,
             type: 'writes',
-            properties: { heuristic: true },
           } as SnapshotEdge);
         }
       }

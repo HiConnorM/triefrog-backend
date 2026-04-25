@@ -14,8 +14,6 @@ export class SearchService {
   private readonly prisma = new PrismaClient();
 
   async search(q: string, projectId?: string): Promise<SearchResult[]> {
-    const pattern = `%${q}%`;
-
     // Search entities by name using ILIKE
     const entityWhere: Record<string, unknown> = {
       name: { contains: q, mode: 'insensitive' },
@@ -31,7 +29,6 @@ export class SearchService {
         name: true,
         type: true,
         projectId: true,
-        description: true,
       },
       take: 50,
     });
@@ -50,7 +47,7 @@ export class SearchService {
         id: true,
         title: true,
         projectId: true,
-        content: true,
+        type: true,
       },
       take: 50,
     });
@@ -59,9 +56,7 @@ export class SearchService {
       id: e.id,
       type: 'entity' as const,
       title: e.name,
-      excerpt: e.description
-        ? e.description.slice(0, 200)
-        : `${e.type} entity`,
+      excerpt: `${e.type} entity`,
       projectId: e.projectId,
     }));
 
@@ -69,7 +64,7 @@ export class SearchService {
       id: d.id,
       type: 'doc' as const,
       title: d.title,
-      excerpt: d.content ? d.content.slice(0, 200) : '',
+      excerpt: `${d.type} doc`,
       projectId: d.projectId,
     }));
 

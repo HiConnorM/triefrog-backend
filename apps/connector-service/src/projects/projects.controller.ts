@@ -35,7 +35,7 @@ export class ProjectsController {
     @Query('orgId') queryOrgId?: string,
     @Headers('x-org-id') headerOrgId?: string,
   ): Promise<ProjectDto[]> {
-    const orgId = queryOrgId || headerOrgId;
+    const orgId = queryOrgId || headerOrgId || '';
     return this.projectsService.getProjects(orgId);
   }
 

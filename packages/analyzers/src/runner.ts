@@ -53,13 +53,13 @@ export class AnalyzerRunner {
     // Deduplicate edges by externalId
     const edgeMap = new Map<string, SnapshotEdge>();
     for (const edge of allEdges) {
-      edgeMap.set(edge.externalId, edge);
+      edgeMap.set(edge.externalId ?? `${edge.from}->${edge.to}`, edge);
     }
 
     // Deduplicate findings by externalId
     const findingMap = new Map<string, RawFinding>();
     for (const finding of allFindings) {
-      findingMap.set(finding.externalId, finding);
+      findingMap.set(finding.externalId ?? finding.title, finding);
     }
 
     return {

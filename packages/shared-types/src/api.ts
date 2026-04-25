@@ -77,15 +77,7 @@ export const TriggerScanDtoSchema = z.object({
 });
 export type TriggerScanDto = z.infer<typeof TriggerScanDtoSchema>;
 
-export const ScanProgressEventSchema = z.object({
-  scanId: z.string(),
-  projectId: z.string(),
-  stage: z.string(),
-  progress: z.number().min(0).max(100),
-  message: z.string(),
-  ts: z.number(),
-});
-export type ScanProgressEvent = z.infer<typeof ScanProgressEventSchema>;
+// ScanProgressEvent is defined in ./events — re-exported from there via index.ts
 
 // ---------------------------------------------------------------------------
 // Graph

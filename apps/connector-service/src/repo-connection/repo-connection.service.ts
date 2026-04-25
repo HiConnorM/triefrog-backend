@@ -13,7 +13,7 @@ export class RepoConnectionService {
   private readonly encryptionKey: string;
 
   constructor() {
-    this.encryptionKey = process.env.ENCRYPTION_KEY;
+    this.encryptionKey = process.env.ENCRYPTION_KEY!;
     if (!this.encryptionKey) {
       throw new Error('ENCRYPTION_KEY environment variable is required');
     }
@@ -26,8 +26,12 @@ export class RepoConnectionService {
   ): Promise<{ id: string; projectId: string; provider: string; createdAt: Date }> {
     const encryptedToken = encrypt(token, this.encryptionKey);
 
-    const connection = await this.prisma.repoConnection.upsert({
+    const existing = await this.prisma.repoConnection.findFirst({
       where: { projectId },
+    });
+
+    const connection = await this.prisma.repoConnection.upsert({
+      where: { id: existing?.id ?? '' },
       create: {
         projectId,
         encryptedToken,
@@ -50,7 +54,7 @@ export class RepoConnectionService {
   async getConnection(
     projectId: string,
   ): Promise<{ id: string; projectId: string; provider: string; createdAt: Date; updatedAt: Date }> {
-    const connection = await this.prisma.repoConnection.findUnique({
+    const connection = await this.prisma.repoConnection.findFirst({
       where: { projectId },
     });
 
@@ -70,7 +74,7 @@ export class RepoConnectionService {
   }
 
   async deleteConnection(projectId: string): Promise<void> {
-    const connection = await this.prisma.repoConnection.findUnique({
+    const connection = await this.prisma.repoConnection.findFirst({
       where: { projectId },
     });
 
@@ -80,7 +84,7 @@ export class RepoConnectionService {
       );
     }
 
-    await this.prisma.repoConnection.delete({ where: { projectId } });
+    await this.prisma.repoConnection.delete({ where: { id: connection.id } });
   }
 
   async verifyConnection(
@@ -115,7 +119,7 @@ export class RepoConnectionService {
   }
 
   async getDecryptedToken(projectId: string): Promise<string> {
-    const connection = await this.prisma.repoConnection.findUnique({
+    const connection = await this.prisma.repoConnection.findFirst({
       where: { projectId },
     });
 

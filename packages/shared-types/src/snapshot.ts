@@ -21,16 +21,18 @@ export const TechStackSchema = z.object({
 export type TechStack = z.infer<typeof TechStackSchema>;
 
 export const SnapshotEntitySchema = z.object({
-  id: z.string(),
+  externalId: z.string(),
+  projectId: z.string(),
   type: EntityTypeSchema,
   name: z.string(),
   path: z.string().optional(),
   properties: z.record(z.string(), z.any()),
-  files: z.array(z.string()),
+  files: z.array(z.string()).optional(),
 });
 export type SnapshotEntity = z.infer<typeof SnapshotEntitySchema>;
 
 export const SnapshotEdgeSchema = z.object({
+  externalId: z.string().optional(),
   from: z.string(),
   to: z.string(),
   type: EdgeTypeSchema,
@@ -38,13 +40,16 @@ export const SnapshotEdgeSchema = z.object({
 export type SnapshotEdge = z.infer<typeof SnapshotEdgeSchema>;
 
 export const RawFindingSchema = z.object({
-  ruleId: z.string(),
-  category: FindingCategorySchema,
-  severity: FindingSeveritySchema,
+  externalId: z.string().optional(),
+  projectId: z.string().optional(),
+  ruleId: z.string().optional(),
+  category: z.string(),
+  severity: z.string(),
   title: z.string(),
   description: z.string(),
   nodeId: z.string().optional(),
-  suggestedActions: z.array(z.string()),
+  affectedEntityIds: z.array(z.string()).optional(),
+  suggestedActions: z.array(z.string()).optional(),
 });
 export type RawFinding = z.infer<typeof RawFindingSchema>;
 

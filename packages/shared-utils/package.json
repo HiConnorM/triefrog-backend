@@ -9,6 +9,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
+    "@triefrog/shared-types": "workspace:*",
     "pino": "^9.2.0",
     "pino-pretty": "^11.2.0",
     "uuid": "^10.0.0"

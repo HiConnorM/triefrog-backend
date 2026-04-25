@@ -32,7 +32,6 @@ export class ScanService {
         scanId: scan.id,
         projectId,
         triggeredBy: triggeredBy ?? 'system',
-        triggeredAt: new Date().toISOString(),
       },
       {
         jobId: `scan:${scan.id}`,

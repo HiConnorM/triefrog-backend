@@ -15,7 +15,7 @@ export class ProjectsService {
         orgId: dto.orgId,
       },
       include: {
-        repoConnection: true,
+        repoConnections: true,
         scans: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -30,7 +30,7 @@ export class ProjectsService {
     const projects = await this.prisma.project.findMany({
       where: { orgId },
       include: {
-        repoConnection: true,
+        repoConnections: true,
         scans: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -46,7 +46,7 @@ export class ProjectsService {
     const project = await this.prisma.project.findUnique({
       where: { id },
       include: {
-        repoConnection: true,
+        repoConnections: true,
         scans: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -72,7 +72,7 @@ export class ProjectsService {
         ...(dto.repoUrl !== undefined && { repoUrl: dto.repoUrl }),
       },
       include: {
-        repoConnection: true,
+        repoConnections: true,
         scans: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -100,11 +100,11 @@ export class ProjectsService {
       orgId: project.orgId,
       lastScanStatus: lastScan?.status ?? undefined,
       lastScanAt: lastScan?.createdAt ?? undefined,
-      repoConnection: project.repoConnection
+      repoConnection: project.repoConnections?.[0]
         ? {
-            id: project.repoConnection.id,
-            provider: project.repoConnection.provider,
-            createdAt: project.repoConnection.createdAt,
+            id: project.repoConnections[0].id,
+            provider: project.repoConnections[0].provider,
+            createdAt: project.repoConnections[0].createdAt,
           }
         : undefined,
       createdAt: project.createdAt,

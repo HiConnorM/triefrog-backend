@@ -1,13 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { db } from '@triefrog/db';
-import {
-  entities,
-  edges,
-  mapPayloads,
-  findings,
-  docs,
-} from '@triefrog/db/schema';
-import { eq, or } from 'drizzle-orm';
 
 // Row-type positions by entity type
 const ROW_MAP: Record<string, number> = {
@@ -33,45 +25,32 @@ function getRow(type: string): number {
 
 @Injectable()
 export class GraphService {
-  async getMapPayload(projectId: string) {
+  async getMapPayload(projectId: string): Promise<unknown> {
     // Check cache first
-    const cached = await db
-      .select()
-      .from(mapPayloads)
-      .where(eq(mapPayloads.projectId, projectId))
-      .limit(1);
+    const cached = await db.mapPayload.findUnique({
+      where: { projectId },
+    });
 
-    if (cached.length > 0) {
-      return cached[0].payload;
+    if (cached) {
+      return cached.payload;
     }
 
     return this.rebuildMapPayload(projectId);
   }
 
-  async rebuildMapPayload(projectId: string) {
+  async rebuildMapPayload(projectId: string): Promise<unknown> {
     // Fetch all entities for the project
-    const projectEntities = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.projectId, projectId));
+    const projectEntities = await db.entity.findMany({
+      where: { projectId },
+    });
 
-    // Fetch all edges for these entities
-    const entityIds = projectEntities.map((e) => e.id);
-
-    let projectEdges: (typeof edges.$inferSelect)[] = [];
-    if (entityIds.length > 0) {
-      projectEdges = await db
-        .select()
-        .from(edges)
-        .where(
-          or(
-            ...entityIds.map((id) => eq(edges.fromEntityId, id)),
-          ),
-        );
-    }
+    // Fetch all edges for the project
+    const projectEdges = await db.edge.findMany({
+      where: { projectId },
+    });
 
     // Build layout: group by type, assign x/y
-    const typeGroups: Record<string, (typeof entities.$inferSelect)[]> = {};
+    const typeGroups: Record<string, typeof projectEntities> = {};
     for (const entity of projectEntities) {
       const row = getRow(entity.type);
       const rowKey = String(row);
@@ -111,32 +90,26 @@ export class GraphService {
     const payload = { nodes, edges: edgeDtos };
 
     // Upsert into mapPayloads cache
-    const existing = await db
-      .select()
-      .from(mapPayloads)
-      .where(eq(mapPayloads.projectId, projectId))
-      .limit(1);
-
-    if (existing.length > 0) {
-      await db
-        .update(mapPayloads)
-        .set({ payload, updatedAt: new Date() })
-        .where(eq(mapPayloads.projectId, projectId));
-    } else {
-      await db.insert(mapPayloads).values({
+    await db.mapPayload.upsert({
+      where: { projectId },
+      create: {
         projectId,
         payload,
-      });
-    }
+        version: 1,
+      },
+      update: {
+        payload,
+        version: { increment: 1 },
+      },
+    });
 
     return payload;
   }
 
-  async getTriePayload(projectId: string) {
-    const projectEntities = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.projectId, projectId));
+  async getTriePayload(projectId: string): Promise<unknown> {
+    const projectEntities = await db.entity.findMany({
+      where: { projectId },
+    });
 
     // Find root (project entity)
     const root = projectEntities.find(
@@ -153,8 +126,8 @@ export class GraphService {
 
   private buildTrieTree(
     projectId: string,
-    allEntities: (typeof entities.$inferSelect)[],
-    root: (typeof entities.$inferSelect) | null,
+    allEntities: Awaited<ReturnType<typeof db.entity.findMany>>,
+    root: Awaited<ReturnType<typeof db.entity.findMany>>[number] | null,
   ) {
     const rootNode = {
       id: root?.id ?? projectId,
@@ -186,7 +159,7 @@ export class GraphService {
       e.type.toLowerCase().includes('integration'),
     );
 
-    const toTrieNode = (e: typeof entities.$inferSelect) => ({
+    const toTrieNode = (e: Awaited<ReturnType<typeof db.entity.findMany>>[number]) => ({
       id: e.id,
       name: e.name,
       type: e.type,
@@ -247,73 +220,60 @@ export class GraphService {
     return rootNode;
   }
 
-  async getNodeDetail(nodeId: string) {
-    const entity = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.id, nodeId))
-      .limit(1);
+  async getNodeDetail(nodeId: string): Promise<unknown> {
+    const entity = await db.entity.findUnique({
+      where: { id: nodeId },
+    });
 
-    if (entity.length === 0) {
+    if (!entity) {
       throw new NotFoundException(`Node ${nodeId} not found`);
     }
 
     // Get all edges where this node is source or target
-    const fromEdges = await db
-      .select()
-      .from(edges)
-      .where(eq(edges.fromEntityId, nodeId));
+    const fromEdges = await db.edge.findMany({
+      where: { fromEntityId: nodeId },
+    });
 
-    const toEdges = await db
-      .select()
-      .from(edges)
-      .where(eq(edges.toEntityId, nodeId));
+    const toEdges = await db.edge.findMany({
+      where: { toEntityId: nodeId },
+    });
 
     // Get linked findings
-    const linkedFindings = await db
-      .select()
-      .from(findings)
-      .where(eq(findings.entityId, nodeId));
+    const linkedFindings = await db.finding.findMany({
+      where: { entityId: nodeId },
+    });
 
     // Get linked docs
-    const linkedDocs = await db
-      .select()
-      .from(docs)
-      .where(eq(docs.entityId, nodeId));
+    const linkedDocs = await db.docLink.findMany({
+      where: { entityId: nodeId },
+      include: { doc: true },
+    });
 
     return {
-      ...entity[0],
+      ...entity,
       relationships: {
         outgoing: fromEdges,
         incoming: toEdges,
       },
       findings: linkedFindings,
-      docs: linkedDocs,
+      docs: linkedDocs.map((dl) => dl.doc),
     };
   }
 
-  async updateNodeStatus(nodeId: string, status: string) {
-    const existing = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.id, nodeId))
-      .limit(1);
+  async updateNodeStatus(nodeId: string, status: string): Promise<unknown> {
+    const existing = await db.entity.findUnique({
+      where: { id: nodeId },
+    });
 
-    if (existing.length === 0) {
+    if (!existing) {
       throw new NotFoundException(`Node ${nodeId} not found`);
     }
 
-    await db
-      .update(entities)
-      .set({ status, updatedAt: new Date() })
-      .where(eq(entities.id, nodeId));
+    const updated = await db.entity.update({
+      where: { id: nodeId },
+      data: { status },
+    });
 
-    const updated = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.id, nodeId))
-      .limit(1);
-
-    return updated[0];
+    return updated;
   }
 }

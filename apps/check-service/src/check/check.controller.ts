@@ -24,21 +24,21 @@ export class CheckController {
   async getFindings(
     @Param('projectId') projectId: string,
     @Query() query: FindingsQueryDto,
-  ) {
+  ): Promise<unknown> {
     return this.checkService.getFindings(projectId, query);
   }
 
   @Get('projects/:projectId/overview')
   @ApiOperation({ summary: 'Get project shippability overview and health cards' })
   @ApiParam({ name: 'projectId', type: String })
-  async getOverview(@Param('projectId') projectId: string) {
+  async getOverview(@Param('projectId') projectId: string): Promise<unknown> {
     return this.checkService.getOverview(projectId);
   }
 
   @Patch('findings/:findingId/resolve')
   @ApiOperation({ summary: 'Mark a finding as resolved' })
   @ApiParam({ name: 'findingId', type: String })
-  async resolveFinding(@Param('findingId') findingId: string) {
+  async resolveFinding(@Param('findingId') findingId: string): Promise<unknown> {
     return this.checkService.resolveFinding(findingId);
   }
 }
