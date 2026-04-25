@@ -1,5 +1,14 @@
 node_modules/
 dist/
+# Compiled JS output from tsc (use dist/ instead)
+apps/**/src/**/*.js
+apps/**/src/**/*.js.map
+apps/**/src/**/*.d.ts
+apps/**/src/**/*.d.ts.map
+packages/**/src/**/*.js
+packages/**/src/**/*.js.map
+packages/**/src/**/*.d.ts
+packages/**/src/**/*.d.ts.map
 .env
 .env.local
 *.log
