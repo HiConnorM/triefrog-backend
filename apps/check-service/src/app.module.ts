@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { CheckModule } from './check/check.module';
+import { JanitorModule } from './janitor/janitor.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { CheckModule } from './check/check.module';
       name: 'check',
     }),
     CheckModule,
+    JanitorModule,
   ],
 })
 export class AppModule {}
