@@ -18,3 +18,4 @@ coverage/
 .turbo/
 *.tsbuildinfo
 prisma/migrations/dev.db
+apps/web/.next/
