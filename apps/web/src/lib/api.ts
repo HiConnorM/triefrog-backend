@@ -1,8 +1,11 @@
 import axios from 'axios';
 
-const GATEWAY = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:3000';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_GATEWAY_URL ||
+  'http://localhost:3000';
 
-export const apiClient = axios.create({ baseURL: GATEWAY });
+export const apiClient = axios.create({ baseURL: API_URL });
 
 apiClient.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
@@ -20,7 +23,7 @@ apiClient.interceptors.response.use(
       if (refreshToken && !err.config._retry) {
         err.config._retry = true;
         try {
-          const { data } = await axios.post(`${GATEWAY}/auth/refresh`, { refreshToken });
+          const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
           const tokens = data.data || data;
           localStorage.setItem('tf_access_token', tokens.accessToken);
           localStorage.setItem('tf_refresh_token', tokens.refreshToken);
@@ -87,9 +90,8 @@ export function getProjectId(): string {
 
 export function createScanStream(projectId: string, onEvent: (data: unknown) => void) {
   if (typeof window === 'undefined') return () => {};
-  const REALTIME = GATEWAY.replace(':3000', ':3008');
-  const token = localStorage.getItem('tf_access_token') || '';
-  const url = `${REALTIME}/projects/${projectId}/scan/stream`;
+  // Realtime SSE is now served by the unified API (public route).
+  const url = `${API_URL}/projects/${projectId}/scan/stream`;
   const es = new EventSource(url);
   es.onmessage = (e) => {
     try {

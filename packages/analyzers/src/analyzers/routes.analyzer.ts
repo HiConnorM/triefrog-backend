@@ -1,7 +1,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { SnapshotEntity } from '@triefrog/shared-types';
+import type { SnapshotEntity, SnapshotEdge } from '@triefrog/shared-types';
 import type { Analyzer, AnalyzerContext, AnalyzerResult } from '../types';
+
+const ENV_REF_REGEX = /process\.env\.([A-Z_][A-Z0-9_]*)/g;
+const API_PATH_REGEX = /['"`](\/api\/[a-zA-Z0-9/_\-[\].:]*)['"`]/g;
+
+/** An endpoint we've materialised, kept around so we can wire edges to it. */
+interface EndpointRef {
+  externalId: string;
+  routePath: string;
+  absFile: string;
+}
 
 function filePathToRoute(filePath: string, basePath: string): string {
   let route = filePath
@@ -12,8 +22,9 @@ function filePathToRoute(filePath: string, basePath: string): string {
   // Remove file extension
   route = route.replace(/\.(tsx|ts|js|jsx)$/, '');
 
-  // Next.js App Router: strip /page suffix
+  // Next.js App Router: strip /page (route group) and /route (API handler) suffix
   route = route.replace(/\/page$/, '');
+  route = route.replace(/\/route$/, '');
 
   // Next.js dynamic segments: [param] -> :param
   route = route.replace(/\[([^\]]+)\]/g, ':$1');
@@ -163,7 +174,109 @@ export class RoutesAnalyzer implements Analyzer {
       }
     }
 
-    return { entities, edges: [], findings: [] };
+    const edges = this.buildEdges(ctx, entities);
+    return { entities, edges, findings: [] };
+  }
+
+  /**
+   * Derives connectivity from the materialised entities:
+   *  - api-endpoint --requires--> env-var   (route file reads process.env.X)
+   *  - page --calls--> api-endpoint          (page file references "/api/...")
+   * Edges reference entities by externalId; unresolved refs are dropped when
+   * the snapshot is persisted, so emitting optimistically here is safe.
+   */
+  private buildEdges(
+    ctx: AnalyzerContext,
+    entities: SnapshotEntity[],
+  ): SnapshotEdge[] {
+    const edges: SnapshotEdge[] = [];
+    const seen = new Set<string>();
+    const push = (edge: SnapshotEdge) => {
+      const key = edge.externalId ?? `${edge.from}|${edge.type}|${edge.to}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      edges.push(edge);
+    };
+
+    const endpoints: EndpointRef[] = entities
+      .filter((e) => e.type === 'api-endpoint')
+      .map((e) => ({
+        externalId: e.externalId,
+        routePath: String((e.properties as Record<string, unknown>).routePath ?? ''),
+        absFile: path.join(
+          ctx.repoPath,
+          String((e.properties as Record<string, unknown>).filePath ?? ''),
+        ),
+      }));
+
+    // api-endpoint --requires--> env-var
+    for (const ep of endpoints) {
+      for (const varName of this.readEnvRefs(ep.absFile)) {
+        push({
+          externalId: `${ctx.projectId}:edge:${ep.externalId}->requires->${varName}`,
+          from: ep.externalId,
+          to: `${ctx.projectId}:env-var:${varName}`,
+          type: 'requires',
+        } as SnapshotEdge);
+      }
+    }
+
+    // page --calls--> api-endpoint (match by route path prefix)
+    const pageFiles = entities
+      .filter((e) => e.type === 'page')
+      .map((e) => ({
+        externalId: e.externalId,
+        absFile: path.join(
+          ctx.repoPath,
+          String((e.properties as Record<string, unknown>).filePath ?? ''),
+        ),
+      }));
+
+    for (const page of pageFiles) {
+      const referenced = this.readApiPaths(page.absFile);
+      for (const apiPath of referenced) {
+        for (const ep of endpoints) {
+          if (ep.routePath && apiPath.startsWith(ep.routePath)) {
+            push({
+              externalId: `${ctx.projectId}:edge:${page.externalId}->calls->${ep.externalId}`,
+              from: page.externalId,
+              to: ep.externalId,
+              type: 'calls',
+            } as SnapshotEdge);
+          }
+        }
+      }
+    }
+
+    return edges;
+  }
+
+  private readEnvRefs(absFile: string): string[] {
+    if (!fs.existsSync(absFile)) return [];
+    try {
+      const content = fs.readFileSync(absFile, 'utf-8');
+      const vars = new Set<string>();
+      let m: RegExpExecArray | null;
+      ENV_REF_REGEX.lastIndex = 0;
+      while ((m = ENV_REF_REGEX.exec(content)) !== null) vars.add(m[1]);
+      return [...vars];
+    } catch {
+      return [];
+    }
+  }
+
+  private readApiPaths(absFile: string): string[] {
+    if (!fs.existsSync(absFile)) return [];
+    try {
+      const content = fs.readFileSync(absFile, 'utf-8');
+      const paths = new Set<string>();
+      let m: RegExpExecArray | null;
+      API_PATH_REGEX.lastIndex = 0;
+      while ((m = API_PATH_REGEX.exec(content)) !== null) paths.add(m[1]);
+      return [...paths];
+    } catch {
+      return [];
+    }
   }
 
   private detectHttpMethods(filePath: string): string[] {

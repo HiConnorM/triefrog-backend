@@ -107,17 +107,18 @@ export class SchemaAnalyzer implements Analyzer {
           segmentLower + 's' === modelLower ||
           segmentLower === modelLower.replace(/y$/, 'ies')
         ) {
-          // Find potential endpoint entity IDs by matching segment
+          // Match the externalId format emitted by the routes analyzer:
+          // `${projectId}:api-endpoint:${METHOD}:/api/${segment}`.
           edges.push({
             externalId: `${ctx.projectId}:edge:${segment}->reads->${model}`,
-            from: `${ctx.projectId}:api-endpoint:GET:/${segment}`,
+            from: `${ctx.projectId}:api-endpoint:GET:/api/${segment}`,
             to: `${ctx.projectId}:db-table:${model}`,
             type: 'reads',
           } as SnapshotEdge);
 
           edges.push({
             externalId: `${ctx.projectId}:edge:${segment}->writes->${model}`,
-            from: `${ctx.projectId}:api-endpoint:POST:/${segment}`,
+            from: `${ctx.projectId}:api-endpoint:POST:/api/${segment}`,
             to: `${ctx.projectId}:db-table:${model}`,
             type: 'writes',
           } as SnapshotEdge);

@@ -50,7 +50,7 @@ export default function OverviewPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 font-mono text-[12px] text-on-surface-variant bg-surface px-3 py-1.5 rounded border border-surface-variant">
             <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span>Last Scan: {project?.lastScanAt ? new Date(project.lastScanAt).toRelaleativeTimeString?.() ?? '4m ago' : '4m ago'}</span>
+            <span>Last Scan: {project?.lastScanAt ? new Date(project.lastScanAt).toLocaleString() : 'never'}</span>
           </div>
           <Button variant="secondary" size="sm" onClick={triggerScan} loading={scanning}>
             <Icon name="refresh" size={14} />

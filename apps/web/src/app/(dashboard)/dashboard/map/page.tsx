@@ -37,6 +37,12 @@ const STATUS_BORDER: Record<string, string> = {
   changed:  '#facc15',
 };
 
+const CONFIDENCE_META: Record<string, { label: string; color: string }> = {
+  high:   { label: 'High confidence',   color: '#4edf96' },
+  medium: { label: 'Medium confidence', color: '#facc15' },
+  low:    { label: 'Needs review',      color: '#fb923c' },
+};
+
 function CustomNode({ data }: { data: any }) {
   const colors = TYPE_COLORS[data.type] || { border: '#869489', bg: '#86948920', label: data.type };
   const statusColor = STATUS_BORDER[data.status] || '#3d4a40';
@@ -52,8 +58,17 @@ function CustomNode({ data }: { data: any }) {
       onClick={data.onClick}
     >
       <div className="px-3 py-2">
-        <div className="font-mono text-[9px] text-on-surface-variant mb-1 uppercase tracking-widest">
-          {colors.label}
+        <div className="flex items-center justify-between mb-1">
+          <div className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest">
+            {colors.label}
+          </div>
+          {data.confidence && CONFIDENCE_META[data.confidence] && (
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              title={CONFIDENCE_META[data.confidence].label}
+              style={{ backgroundColor: CONFIDENCE_META[data.confidence].color }}
+            />
+          )}
         </div>
         <div className="text-[13px] font-medium text-on-surface truncate">{data.name}</div>
         {data.files?.[0] && (
@@ -68,11 +83,26 @@ function CustomNode({ data }: { data: any }) {
 
 const nodeTypes = { custom: CustomNode };
 
+function RelationRow({ arrow, type, name, nodeType }: { arrow: string; type: string; name?: string; nodeType?: string }) {
+  const c = nodeType ? TYPE_COLORS[nodeType] : undefined;
+  return (
+    <div className="font-mono text-[11px] text-on-surface-variant flex items-center gap-1.5">
+      <span className="text-outline">{arrow}</span>
+      <span className="text-on-surface truncate">{name ?? 'unknown'}</span>
+      {c && <span className="text-[9px] uppercase tracking-wider" style={{ color: c.border }}>{c.label}</span>}
+      <span className="text-outline ml-auto">{type}</span>
+    </div>
+  );
+}
+
 function NodeInspector({ nodeId }: { nodeId: string }) {
   const { data: node, isLoading } = useNode(nodeId);
   if (isLoading) return <SkeletonCard lines={5} />;
   if (!node) return null;
   const colors = TYPE_COLORS[node.type] || { border: '#869489', bg: '#86948920', label: node.type };
+  const confidence = CONFIDENCE_META[node.confidence as string];
+  const outgoing = node.relationships?.outgoing ?? [];
+  const incoming = node.relationships?.incoming ?? [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -84,11 +114,36 @@ function NodeInspector({ nodeId }: { nodeId: string }) {
         <Badge variant={(node.status as any) || 'suspect'}>{node.status}</Badge>
       </div>
 
+      {confidence && (
+        <div className="flex items-center gap-2 text-body-sm">
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: confidence.color }} />
+          <span className="text-on-surface-variant">{confidence.label}</span>
+        </div>
+      )}
+
       {node.files?.length > 0 && (
         <div>
           <p className="font-mono text-[10px] text-on-surface-variant uppercase mb-2">Files</p>
           {node.files.map((f: string, i: number) => (
             <div key={i} className="font-mono text-[11px] text-primary truncate">{f}</div>
+          ))}
+        </div>
+      )}
+
+      {outgoing.length > 0 && (
+        <div>
+          <p className="font-mono text-[10px] text-on-surface-variant uppercase mb-2">Depends on</p>
+          {outgoing.map((r: any, i: number) => (
+            <RelationRow key={`o${i}`} arrow="→" type={r.type} name={r.entity?.name} nodeType={r.entity?.type} />
+          ))}
+        </div>
+      )}
+
+      {incoming.length > 0 && (
+        <div>
+          <p className="font-mono text-[10px] text-on-surface-variant uppercase mb-2">Used by</p>
+          {incoming.map((r: any, i: number) => (
+            <RelationRow key={`i${i}`} arrow="←" type={r.type} name={r.entity?.name} nodeType={r.entity?.type} />
           ))}
         </div>
       )}
@@ -105,13 +160,11 @@ function NodeInspector({ nodeId }: { nodeId: string }) {
         </div>
       )}
 
-      {node.edges?.from?.length > 0 && (
+      {node.docs?.length > 0 && (
         <div>
-          <p className="font-mono text-[10px] text-on-surface-variant uppercase mb-2">Outgoing</p>
-          {node.edges.from.map((e: any) => (
-            <div key={e.id} className="font-mono text-[11px] text-on-surface-variant">
-              → {e.to?.name} <span className="text-outline">({e.type})</span>
-            </div>
+          <p className="font-mono text-[10px] text-on-surface-variant uppercase mb-2">Docs</p>
+          {node.docs.map((d: any) => (
+            <div key={d.id} className="font-mono text-[11px] text-primary truncate">{d.title ?? d.type}</div>
           ))}
         </div>
       )}
@@ -162,8 +215,8 @@ export default function MapPage() {
 
   const rfEdges: Edge[] = (mapData?.edges || []).map((e: any) => ({
     id: e.id,
-    source: e.from,
-    target: e.to,
+    source: e.fromEntityId,
+    target: e.toEntityId,
     label: e.type,
     style: { stroke: '#3d4a40', strokeWidth: 1 },
     labelStyle: { fontSize: 9, fill: '#869489' },

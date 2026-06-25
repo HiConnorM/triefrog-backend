@@ -16,7 +16,8 @@ export default function FixesPage() {
   const [filter, setFilter] = useState<Filter>('pending');
   const [resolving, setResolving] = useState<string | null>(null);
 
-  const params = filter === 'all' ? {} : filter === 'resolved' ? { resolved: 'true' } : { resolved: 'false' };
+  const params: Record<string, string> =
+    filter === 'all' ? {} : filter === 'resolved' ? { resolved: 'true' } : { resolved: 'false' };
   const { data: findingsData, isLoading, mutate } = useFindings(projectId, params);
   const findings = Array.isArray(findingsData?.findings) ? findingsData.findings : Array.isArray(findingsData) ? findingsData : [];
 
