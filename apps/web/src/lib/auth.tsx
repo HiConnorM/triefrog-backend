@@ -44,9 +44,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const r = await api.auth.login(email, password);
     const payload = r.data?.data || r.data;
-    const { accessToken, refreshToken, user: u } = payload;
-    localStorage.setItem('tf_access_token', accessToken);
-    localStorage.setItem('tf_refresh_token', refreshToken);
+    const { tokens, user: u } = payload;
+    localStorage.setItem('tf_access_token', tokens.accessToken);
+    localStorage.setItem('tf_refresh_token', tokens.refreshToken);
     if (u?.orgId) localStorage.setItem('tf_org_id', u.orgId);
     setUser(u);
   };
@@ -54,9 +54,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (data: { email: string; password: string; name: string; orgName: string }) => {
     const r = await api.auth.register(data);
     const payload = r.data?.data || r.data;
-    const { accessToken, refreshToken, user: u } = payload;
-    localStorage.setItem('tf_access_token', accessToken);
-    localStorage.setItem('tf_refresh_token', refreshToken);
+    const { tokens, user: u } = payload;
+    localStorage.setItem('tf_access_token', tokens.accessToken);
+    localStorage.setItem('tf_refresh_token', tokens.refreshToken);
     if (u?.orgId) localStorage.setItem('tf_org_id', u.orgId);
     setUser(u);
   };
